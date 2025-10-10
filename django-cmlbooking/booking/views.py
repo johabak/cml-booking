@@ -150,12 +150,21 @@ def CreateNewBooking(request,day=None,slot=None):
             email = form.cleaned_data['email']
             
             # Get domain from email
-            domain = email.split('@')[-1]
+            domain = (email.split('@')[-1] or "").strip.lower()
             logger.info(f"CreateNewBooking: Started booking for {email}")
 
             # Invalid domain or email
-            if domain != settings.BOOKING_ALLOWED_DOMAIN:
-                messages.add_message(request, messages.WARNING, f'E-postadressen du benyttet er ugyldig. Det er kun mulig å reservere med @{settings.BOOKING_ALLOWED_DOMAIN} e-postadresser.')
+            if domain not in settings.BOOKING_ALLOWED_DOMAIN:
+                allowed_list = [f"@{d}" for d in settings.BOOKING_ALLOWED_DOMAIN]
+                if len(allowed_list) == 1:
+                    allowed_str = allowed_list[0]
+                else:
+                    allowed_str = f"{', '.join(allowed_list[:-1])} eller {allowed_list[-1]}"        
+        
+                messages.add_message(
+                    request,
+                    messages.WARNING,
+                    f'E-postadressen du benyttet er ugyldig. Det er kun mulig å reservere med {allowed_str} e-postadresser.')
                 logger.error(f"CreateNewBooking: Invalid domain {domain}")
                 return redirect(f'/booking/{day}/{slot}/')
             

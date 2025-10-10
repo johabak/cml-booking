@@ -174,7 +174,12 @@ CML_USERNAME = config('CML_USERNAME')
 CML_PASSWORD = config('CML_PASSWORD')
 CML_URL = config('CML_URL')
 BOOKING_URL = config('BOOKING_URL')
-BOOKING_ALLOWED_DOMAIN = config('BOOKING_ALLOWED_DOMAIN')
+BOOKING_ALLOWED_DOMAIN = [
+    d.strip().lower() for d in config('BOOKING_ALLOWED_DOMAIN', defualt='').split(',') 
+    if d.strip()
+]
+
+
 
 # SENDGRID
 #SENDGRID_API_KEY = config('SENDGRID_API_KEY')
