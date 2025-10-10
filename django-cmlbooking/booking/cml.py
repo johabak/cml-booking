@@ -10,7 +10,9 @@ from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileT
 from django.conf import settings
 import logging
 logger = logging.getLogger(__name__)
-
+import mimetypes
+from django.core.mail import EmailMultiAlternatives
+from anymail.exceptions import AnymailError
 
 def GetToken(username, password):
     """
@@ -184,62 +186,124 @@ def UpdateUserPassword(token, userId, oldpw, newpw):
     logger.info(f"UpdateUserPassword: {r.status_code}")
     return r.status_code
 
+#def SendEmail(email, title, content, attachments=None):
+#    """
+#    Sends an email with input title and content. Attachment is optional.
+#
+#    Status codes:
+#      Success: 202
+#      Failure: any other values
+#    """
+#    # Create message
+#    message = Mail(
+#        from_email=settings.SENDGRID_FROM_EMAIL,
+#        to_emails=email,
+#        subject=title,
+#        html_content=content)
+#
+#    # Add BCC if configured
+#    if (settings.SENDGRID_BCC_EMAIL):
+#        # Do not BCC if email and BCC is equal
+#        if email != settings.SENDGRID_BCC_EMAIL:
+#            message.add_bcc(settings.SENDGRID_BCC_EMAIL)
+#
+#    # If there are any attachment to be sendt
+#    if attachments:
+#        for file in attachments:
+#            # Remove path from filename
+#            filename = file.split('/')[-1]
+#
+#            # Verify that the file exists. If not, ignore
+#            if os.path.exists(file):
+#                # Read file
+#                with open(file, 'rb') as f:
+#                    data = f.read()
+#                    f.close()
+#                
+#                # Create attachment
+#                file = Attachment()
+#                file.file_content = FileContent(base64.b64encode(data).decode())
+#                file.file_type = FileType('text/plain')
+#                file.file_name = FileName(filename)
+#                file.disposition = Disposition('attachment')
+#                file.content_id = ContentId(filename)
+#
+#                # Attach to message
+#                message.attachment = file
+#
+#    try:
+#        sendgrid_client = SendGridAPIClient(settings.SENDGRID_API_KEY)
+#        response = sendgrid_client.send(message)
+#        logger.info(f"SendEmail: Sending email to {email} with subject {title}.")
+#        logger.info(f"SendEmail: SendGridAPI status code: {response.status_code}")
+#        return response.status_code
+#    except Exception as e:
+#        logger.error(f"SendEmail: Failed to send email")
+#        logger.info(f"SendEmail: SendGridAPI status code: {response.status_code}")
+#        logger.debug(f"SendEmail: Exception: {e}")
+#        return response.status_code
+
 def SendEmail(email, title, content, attachments=None):
-    """
-    Sends an email with input title and content. Attachment is optional.
 
-    Status codes:
-      Success: 202
-      Failure: any other values
-    """
-    # Create message
-    message = Mail(
-        from_email=settings.SENDGRID_FROM_EMAIL,
-        to_emails=email,
-        subject=title,
-        html_content=content)
+        """
+        Sender epost via Django + Anymail (Brevo)
+        - email: str | list[str]  (mottaker(e))
+        - title: subject
+        - content_html: HTML-innhold
+        - attachments: liste av filstier (valgfr)
 
-    # Add BCC if configured
-    if (settings.SENDGRID_BCC_EMAIL):
-        # Do not BCC if email and BCC is equal
-        if email != settings.SENDGRID_BCC_EMAIL:
-            message.add_bcc(settings.SENDGRID_BCC_EMAIL)
+        Returns True or False.
+        """
 
-    # If there are any attachment to be sendt
-    if attachments:
-        for file in attachments:
-            # Remove path from filename
-            filename = file.split('/')[-1]
+        try:
+                to_list = [email] if isinstance(email, str) else list(email)
 
-            # Verify that the file exists. If not, ignore
-            if os.path.exists(file):
-                # Read file
-                with open(file, 'rb') as f:
-                    data = f.read()
-                    f.close()
-                
-                # Create attachment
-                file = Attachment()
-                file.file_content = FileContent(base64.b64encode(data).decode())
-                file.file_type = FileType('text/plain')
-                file.file_name = FileName(filename)
-                file.disposition = Disposition('attachment')
-                file.content_id = ContentId(filename)
 
-                # Attach to message
-                message.attachment = file
+                #The mail (text as fallback)
+                text_fallback = "Denne e-posten har HTML-innhold. Åpne i en HTML-kompatibel klient."
+                msg = EmailMultiAlternatives(
+                        subject=title,
+                        body=text_fallback,
+                        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                        to=to_list,
+                        bcc=[bcc_email] if bcc_email and bcc_email not in to_list else None,
+                        reply_to=[reply_to] if isinstance(reply_to, str) else reply_to,
+                )
+                msg.attach_alternative(content_html, "text/html")
 
-    try:
-        sendgrid_client = SendGridAPIClient(settings.SENDGRID_API_KEY)
-        response = sendgrid_client.send(message)
-        logger.info(f"SendEmail: Sending email to {email} with subject {title}.")
-        logger.info(f"SendEmail: SendGridAPI status code: {response.status_code}")
-        return response.status_code
-    except Exception as e:
-        logger.error(f"SendEmail: Failed to send email")
-        logger.info(f"SendEmail: SendGridAPI status code: {response.status_code}")
-        logger.debug(f"SendEmail: Exception: {e}")
-        return response.status_code
+                bcc = getattr(settings, "SENDGRID_BCC_EMAIL", None)
+                if bcc and (bcc not in to_list):
+                        msg.bcc = [bcc]
+
+
+                #Attachment
+                if attachments:
+                        for path in attachments:
+                                if not os.path.exists(path):
+                                        logger.warning(f"SendEmail: Vedlegg finnes ikke: {path}")
+                                        continue
+                                filename = os.path.basename(path)
+                                mime, _ = mimetypes.guess_type(filename)
+                                mime = mime or "application/octet-stream"
+                                with open(path, "rb") as f:
+                                        data = f.read()
+                                msg.attach(filename, data, mime)
+
+
+                sent = msg.send()
+                if sent == 1:
+                        logger.info(f"SendEmail OK -> to={to_list} subj='{title}' tags={tags}")
+                        return True
+                else:
+                        logger.error(f"SendEmail: msg.send() returned {sent} (expected 1)")
+                        return False
+        except AnymailError as e:
+                logger.exception(f"SendEmail: Anymail/Brevo-errror: {e}")
+                return false
+        except Exception as e:
+                logger.exception(f"SendEmail: error: {e}")
+                return False
+
 
 def CleanUp(email, temp_password):
     """
@@ -337,8 +401,10 @@ def CleanUp(email, temp_password):
                     'booking_url': settings.BOOKING_URL,
                 }
                 body = render_to_string('booking/email_teardown.html', context)
-                statuscode = SendEmail(email, 'Community Network - CML reservasjon er utløpt', body, attachments)
-                if not statuscode == 202:
+#                statuscode = SendEmail(email, 'Community Network - CML reservasjon er utløpt', body, attachments)
+#                if not statuscode == 202:
+                ok = SendEmail(email, 'Community Network - CML reservasjon er utløpt', body, attachments)
+                if not ok:
                     error_trace.append("11: SendEmail FAILED after cleanup!")
                     logger.error(f"CleanUp: SendEmail FAILED after cleanup!")
 
@@ -382,8 +448,10 @@ def CreateTempUser(email, temp_password):
                 }
                 body = render_to_string('booking/email_setup.html', context)
 
-                statuscode = SendEmail(email, 'Community Network - CML påloggingsinformasjon', body)
-                if not statuscode == 202:
+ #               statuscode = SendEmail(email, 'Community Network - CML påloggingsinformasjon', body)
+ #               if not statuscode == 202:
+                ok = SendEmail(email, 'Community Network - CML påloggingsinformasjon', body)
+                if not ok:
                     error_trace.append("04: SendEmail FAILED after creating user!")
                     logger.error(f"CreateTempUser: SendEmail FAILED after creating user!")
     
@@ -395,8 +463,10 @@ def CreateTempUser(email, temp_password):
         }
         body = render_to_string('booking/email_error.html', context)
 
-        statuscode = SendEmail(email, 'Community Network - CML - Noe gikk galt...', body)
-        if not statuscode == 202:
+        #statuscode = SendEmail(email, 'Community Network - CML - Noe gikk galt...', body)
+        #if not statuscode == 202:
+        ok2 = SendEmail(email, 'Community Network - CML - Noe gikk galt...', body)
+        if not ok2:
             error_trace.append("05: SendEmail FAILED when sending error email to user!")
             logger.error(f"CreateTempUser: SendEmail FAILED when sending error email to user!")
 

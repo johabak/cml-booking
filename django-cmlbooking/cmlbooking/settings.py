@@ -27,7 +27,7 @@ SECRET_KEY = config('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DJANGO_DEBUG', cast=bool, default=False)
 
-ALLOWED_HOSTS = ['127.0.0.1', config('DJANGO_OWN_IP'), config('DJANGO_ALLOWED_HOSTS')]
+ALLOWED_HOSTS = ['127.0.0.1', config('DJANGO_OWN_IP'), config('DJANGO_ALLOWED_HOSTS'), config('DJANGO_ALLOWED_HOST2')]
 CSRF_TRUSTED_ORIGINS = [config('DJANGO_CSRF_TRUSTED_ORIGINS')]
 
 # Application definition
@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'django_apscheduler',
     'booking',
     'crispy_forms',
+    'anymail',
 ]
 
 CRISPY_TEMPLATE_PACK = 'bootstrap4'
@@ -87,22 +88,22 @@ POSTGRES_PASS = config('POSTGRES_PASS')
 
 DATABASES = {
     # SQLITE
-    #'default': {
-    #    'ENGINE': 'django.db.backends.sqlite3',
-    #    'NAME': BASE_DIR / 'db.sqlite3',
-    #    'OPTIONS': {
-    #        'timeout': 60,  # in seconds
-    #    }
-    #}
-    # POSTGRES
     'default': {
-        'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': POSTGRES_DB,
-        'USER': POSTGRES_USER,
-        'PASSWORD': POSTGRES_PASS,
-        'HOST': 'localhost',
-        'PORT': '5432'
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 60,  # in seconds
+        }
     }
+    # POSTGRES
+    #'default': {
+    #    'ENGINE': 'django.db.backends.postgresql_psycopg2',
+    #    'NAME': POSTGRES_DB,
+    #    'USER': POSTGRES_USER,
+    #    'PASSWORD': POSTGRES_PASS,
+    #    'HOST': 'localhost',
+    #    'PORT': '5432'
+    #}
 }
 
 
@@ -176,9 +177,17 @@ BOOKING_URL = config('BOOKING_URL')
 BOOKING_ALLOWED_DOMAIN = config('BOOKING_ALLOWED_DOMAIN')
 
 # SENDGRID
-SENDGRID_API_KEY = config('SENDGRID_API_KEY')
-SENDGRID_FROM_EMAIL = config('SENDGRID_FROM_EMAIL')
-SENDGRID_BCC_EMAIL = config('SENDGRID_BCC_EMAIL')
+#SENDGRID_API_KEY = config('SENDGRID_API_KEY')
+#SENDGRID_FROM_EMAIL = config('SENDGRID_FROM_EMAIL')
+#SENDGRID_BCC_EMAIL = config('SENDGRID_BCC_EMAIL')
+
+EMAIL_BACKEND = "anymail.backends.brevo.EmailBackend"
+ANYMAIL = {
+        "BREVO_API_KEY": config('ANYMAIL_BREVO_API_KEY'),
+        #"SEND_DEFAULTS":{"tags":["django]}, #global tags
+}
+DEFAULT_FROM_EMAIL = config('ANYMAIL_DEFAULT_FROM_EMAIL')
+SERVER_EMAIL = DEFAULT_FROM_EMAIL # for django error mails
 
 # LOGGING
 LOGGING = {
