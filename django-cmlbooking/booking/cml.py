@@ -249,7 +249,7 @@ def SendEmail(email, title, content, attachments=None, reply_to=None, bcc_email=
         Sender epost via Django + Anymail (Brevo)
         - email: str | list[str]  (mottaker(e))
         - title: subject
-        - content_html: HTML-innhold
+        - content: HTML-innhold
         - attachments: liste av filstier (valgfr)
 
         Returns True or False.
@@ -269,7 +269,7 @@ def SendEmail(email, title, content, attachments=None, reply_to=None, bcc_email=
                         bcc=[bcc_email] if bcc_email and bcc_email not in to_list else None,
                         reply_to=[reply_to] if isinstance(reply_to, str) else reply_to,
                 )
-                msg.attach_alternative(content_html, "text/html")
+                msg.attach_alternative(content, "text/html")
 
                 bcc = getattr(settings, "ANYMAIL_BCC_EMAIL", None)
                 if bcc and (bcc not in to_list):
