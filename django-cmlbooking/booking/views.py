@@ -139,7 +139,7 @@ def GetSlotStatus(date):
 def CreateNewBooking(request,day=None,slot=None):
     # Valid timeslots
     timeslots = [0,3,6,9,12,15,18,21]
-       
+
     if request.method == 'POST':
         form = BookingForm(request.POST)
 
@@ -148,9 +148,9 @@ def CreateNewBooking(request,day=None,slot=None):
 
             # Get email from form
             email = form.cleaned_data['email']
-            
+
             # Get domain from email
-            domain = (email.split('@')[-1] or "").strip.lower()
+            domain = (email.split('@')[-1] or "").strip().lower()
             logger.info(f"CreateNewBooking: Started booking for {email}")
 
             # Invalid domain or email
@@ -159,8 +159,8 @@ def CreateNewBooking(request,day=None,slot=None):
                 if len(allowed_list) == 1:
                     allowed_str = allowed_list[0]
                 else:
-                    allowed_str = f"{', '.join(allowed_list[:-1])} eller {allowed_list[-1]}"        
-        
+                    allowed_str = f"{', '.join(allowed_list[:-1])} eller {allowed_list[-1]}"
+
                 messages.add_message(
                     request,
                     messages.WARNING,
@@ -173,12 +173,12 @@ def CreateNewBooking(request,day=None,slot=None):
                 messages.add_message(request, messages.ERROR, 'Det finnes allerede en reservasjon for e-postadresse din! For å gi alle mulighet til å bruke miljøet, er det kun mulig å ha én aktiv reservasjon per bruker.')
                 logger.error(f"CreateNewBooking: User {email} already have an active booking")
                 return redirect(f'/booking/{day}/{slot}/')
-            
+
             else:
                 # Check if user email has an verified email
                 user = VerifiedEmail.objects.filter(email=email).first()
                 verified = False
-                
+
                 if(user):
                     # User exist
                     if(user.verified):
