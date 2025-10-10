@@ -243,7 +243,7 @@ def UpdateUserPassword(token, userId, oldpw, newpw):
 #        logger.debug(f"SendEmail: Exception: {e}")
 #        return response.status_code
 
-def SendEmail(email, title, content, attachments=None):
+def SendEmail(email, title, content, attachments=None, reply_to=None, bcc_email=None, tags=None):
 
         """
         Sender epost via Django + Anymail (Brevo)
@@ -271,10 +271,9 @@ def SendEmail(email, title, content, attachments=None):
                 )
                 msg.attach_alternative(content_html, "text/html")
 
-                bcc = getattr(settings, "SENDGRID_BCC_EMAIL", None)
+                bcc = getattr(settings, "ANYMAIL_BCC_EMAIL", None)
                 if bcc and (bcc not in to_list):
                         msg.bcc = [bcc]
-
 
                 #Attachment
                 if attachments:
