@@ -175,7 +175,7 @@ CML_PASSWORD = config('CML_PASSWORD')
 CML_URL = config('CML_URL')
 BOOKING_URL = config('BOOKING_URL')
 BOOKING_ALLOWED_DOMAIN = [
-    d.strip().lower() for d in config('BOOKING_ALLOWED_DOMAIN', defualt='').split(',') 
+    d.strip().lower() for d in config('BOOKING_ALLOWED_DOMAIN', default='').split(',') 
     if d.strip()
 ]
 
