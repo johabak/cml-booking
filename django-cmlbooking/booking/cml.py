@@ -172,23 +172,36 @@ def LogAllUsersOut(token):
 def UpdateUserPassword(token, userId, oldpw, newpw):
     """
     Updates the password for a given user ID
+    Primær: PATCH /users/{id}/   payload={"password":{"old_password":..., "new_password":...}}
+    Fallback (CML): POST /change_password  payload={"old_password":..., "new_password":...}
 
     Status codes:
       Success: 200
       Failure: any other values
     """
-    api_url = f"users/{userId}/"
-    head = {'Authorization': f'Bearer {token}'}
-    payload = { 
-        "password": 
-        {
-            "old_password": oldpw,
-            "new_password": newpw
-        }
+    base = settings.CML_API_BASE_URL.rstrip('/')
+
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
     }
-    r = requests.patch(settings.CML_API_BASE_URL+api_url, headers=head, json=payload, verify=False)
-    logger.info(f"UpdateUserPassword: {r.status_code}")
-    return r.status_code
+
+    # Primary (future-proof) — per-user endpoint
+    url1 = f"{base}/users/{userId}/"
+    payload1 = {"password": {"old_password": oldpw, "new_password": newpw}}
+    r1 = requests.patch(url1, headers=headers, json=payload1, verify=False, timeout=10)
+    logger.info(f"UpdateUserPassword primary -> {url1} : {r1.status_code} {r1.text[:200]}")
+
+    if r1.status_code != 404:
+        return r1.status_code
+
+    # Fallback (your CML today) — global endpoint for the logged-in user
+    url2 = f"{base}/change_password"
+    payload2 = {"old_password": oldpw, "new_password": newpw}
+    r2 = requests.post(url2, headers=headers, json=payload2, verify=False, timeout=10)
+    logger.info(f"UpdateUserPassword fallback -> {url2} : {r2.status_code} {r2.text[:200]}")
+    return r2.status_code
 
 #def SendEmail(email, title, content, attachments=None):
 #    """
@@ -302,7 +315,7 @@ def SendEmail(email, title, content, attachments=None, reply_to=None, bcc_email=
                         return False
         except AnymailError as e:
                 logger.exception(f"SendEmail: Anymail/Brevo-errror: {e}")
-                return false
+                return False
         except Exception as e:
                 logger.exception(f"SendEmail: error: {e}")
                 return False
@@ -319,8 +332,8 @@ def CleanUp(email, temp_password):
     token, statuscode = GetToken(settings.CML_USERNAME, temp_password)
 
     # 2) Fallback to original password if temp did not work
-    if statuscode != 200:
-        logger.warning("CleanUp: temp password login failed, trying current admin password")
+    if statuscode != 200 or not token:
+        logger.warning("CleanUp: temp password login failed, retrying with original admin password")
         token, statuscode = GetToken(settings.CML_USERNAME, settings.CML_PASSWORD)
 
     error_trace = []
