@@ -185,38 +185,30 @@ def UpdateUserPassword(token, userId, oldpw, newpw):
     base = settings.CML_API_BASE_URL.rstrip('/')
 
     # Common headers for both primary and fallback calls
-    head = {
+    headers = {
         'Authorization': f'Bearer {token}',
         'Accept': 'application/json',
         'Content-Type': 'application/json',
     }
-    # --- Primary: per-user endpoint (works on CML variants that support it)
-    api_url_primary = f"{base}/users/{userId}/"
-    payload_primary = {
-        "password": {
-            "old_password": oldpw,
-            "new_password": newpw
-        }
-    }
-    r1 = requests.patch(api_url_primary, headers=head, json=payload_primary, verify=False)
-    logger.info(f"UpdateUserPassword primary -> {api_url_primary} : {r1.status_code} {r1.text[:200]}")
 
-    # If anything other than 404, return as-is (200/4xx/5xx will bubble up)
+    # Primary: per-user endpoint
+    url1 = f"{base}/users/{userId}/"
+    payload1 = {"password": {"old_password": oldpw, "new_password": newpw}}
+    r1 = requests.patch(url1, headers=headers, json=payload1, verify=False, timeout=10)
+    logger.info(f"UpdateUserPassword primary -> {url1} : {r1.status_code} {r1.text[:200]}")
+
     if r1.status_code != 404:
-        return r1.status_code
+        return r1.status_code  # return 200/4xx/5xx (anything except 404)
 
-    # --- Fallback: global change_password for the logged-in user (your CML)
-    api_url_fb = f"{base}/change_password"
+    # Fallback: global endpoint for the logged-in user
+    url_fb = f"{base}/change_password"
     payload_fb = {"old_password": oldpw, "new_password": newpw}
-
-    # Try POST first (most common), then PATCH/PUT as a safety net
     for method in ("post", "patch", "put"):
-        resp = getattr(requests, method)(api_url_fb, headers=head, json=payload_fb, verify=False)
-        logger.info(f"UpdateUserPassword fallback {method.upper()} -> {api_url_fb} : {resp.status_code} {resp.text[:200]}")
+        resp = getattr(requests, method)(url_fb, headers=headers, json=payload_fb, verify=False, timeout=10)
+        logger.info(f"UpdateUserPassword fallback {method.upper()} -> {url_fb} : {resp.status_code} {resp.text[:200]}")
         if resp.status_code != 404:
             return resp.status_code
 
-    # If we still got 404 across methods (very unlikely), return 404
     return 404
 
 #def SendEmail(email, title, content, attachments=None):
