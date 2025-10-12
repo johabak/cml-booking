@@ -394,9 +394,13 @@ def CleanUp(email, temp_password):
                     # Note! Extract of config only works if node is running,
                     #       so non-running nodes will not be part of lab export
                     nodeconfig, statuscode = GetNodeConfig(token, lab,node)
-                    if not statuscode == 200:
-                        logger.error(f"CleanUp: GetNodeConfig FAILED for {node}")
-                        error_trace.append(f"03: GetNodeConfig failed for {node}")
+                    if statuscode != 200:
+                        # Do not treat this as a hard failure. We can still Stop/Wipe/Delete the lab.
+                        logger.warning(f"CleanUp: GetNodeConfig not available for {lab}, continuing without it.")
+                        nodes = []  # ensure downstream code doesn't crash if it loops nodes
+                    else:
+                        # proceed if you actually use 'nodes' later
+                        pass
 
                 # Append lab to list of labs
                 userlabs.append(lab)
@@ -475,10 +479,14 @@ def CleanUp(email, temp_password):
                     error_trace.append("11: SendEmail FAILED after cleanup!")
                     logger.error(f"CleanUp: SendEmail FAILED after cleanup!")
 
-    if error_trace:
-        # Something failed! Lets drop the admin an email
-        if (settings.SENDGRID_BCC_EMAIL):
-            SendEmail(settings.SENDGRID_BCC_EMAIL, 'Community Network - CleanUp failed!', f'CleanUp failed. Error reason: { error_trace }')
+    # Only escalate truly fatal issues (ignore 03: GetNodeConfig warnings)
+    fatal_errors = [e for e in error_trace if not e.startswith("03: GetNodeConfig")]
+    if fatal_errors and settings.SENDGRID_BCC_EMAIL:
+        SendEmail(
+            settings.SENDGRID_BCC_EMAIL,
+            'Community Network - CleanUp failed!',
+            f'CleanUp failed. Error reason: { fatal_errors }'
+        )
 
 def CreateTempUser(email, temp_password):
     """
