@@ -171,37 +171,53 @@ def LogAllUsersOut(token):
 
 def UpdateUserPassword(token, userId, oldpw, newpw):
     """
-    Updates the password for a given user ID
-    Primær: PATCH /users/{id}/   payload={"password":{"old_password":..., "new_password":...}}
-    Fallback (CML): POST /change_password  payload={"old_password":..., "new_password":...}
+    Updates the password for a given user ID.
 
-    Status codes:
-      Success: 200
-      Failure: any other values
+    Primary (future-ready): PATCH /users/{id}/ with payload:
+      {"password":{"old_password": oldpw, "new_password": newpw}}
+
+    Fallback (your CML today): /change_password for the *authenticated* user with payload:
+      {"old_password": oldpw, "new_password": newpw}
+
+    Returns the status code from the API call.
     """
+
     base = settings.CML_API_BASE_URL.rstrip('/')
 
-    headers = {
+    # Common headers for both primary and fallback calls
+    head = {
         'Authorization': f'Bearer {token}',
         'Accept': 'application/json',
         'Content-Type': 'application/json',
     }
+    # --- Primary: per-user endpoint (works on CML variants that support it)
+    api_url_primary = f"{base}/users/{userId}/"
+    payload_primary = {
+        "password": {
+            "old_password": oldpw,
+            "new_password": newpw
+        }
+    }
+    r1 = requests.patch(api_url_primary, headers=head, json=payload_primary, verify=False)
+    logger.info(f"UpdateUserPassword primary -> {api_url_primary} : {r1.status_code} {r1.text[:200]}")
 
-    # Primary (future-proof) — per-user endpoint
-    url1 = f"{base}/users/{userId}/"
-    payload1 = {"password": {"old_password": oldpw, "new_password": newpw}}
-    r1 = requests.patch(url1, headers=headers, json=payload1, verify=False, timeout=10)
-    logger.info(f"UpdateUserPassword primary -> {url1} : {r1.status_code} {r1.text[:200]}")
-
+    # If anything other than 404, return as-is (200/4xx/5xx will bubble up)
     if r1.status_code != 404:
         return r1.status_code
 
-    # Fallback (your CML today) — global endpoint for the logged-in user
-    url2 = f"{base}/change_password"
-    payload2 = {"old_password": oldpw, "new_password": newpw}
-    r2 = requests.post(url2, headers=headers, json=payload2, verify=False, timeout=10)
-    logger.info(f"UpdateUserPassword fallback -> {url2} : {r2.status_code} {r2.text[:200]}")
-    return r2.status_code
+    # --- Fallback: global change_password for the logged-in user (your CML)
+    api_url_fb = f"{base}/change_password"
+    payload_fb = {"old_password": oldpw, "new_password": newpw}
+
+    # Try POST first (most common), then PATCH/PUT as a safety net
+    for method in ("post", "patch", "put"):
+        resp = getattr(requests, method)(api_url_fb, headers=head, json=payload_fb, verify=False)
+        logger.info(f"UpdateUserPassword fallback {method.upper()} -> {api_url_fb} : {resp.status_code} {resp.text[:200]}")
+        if resp.status_code != 404:
+            return resp.status_code
+
+    # If we still got 404 across methods (very unlikely), return 404
+    return 404
 
 #def SendEmail(email, title, content, attachments=None):
 #    """
@@ -328,24 +344,28 @@ def CleanUp(email, temp_password):
     # Authenticate and get all labs
     logger.info(f"CleanUp: Starting cleanup")
 
-    # 1) Try temp-password (if CreateTempUser did work)
+    # Try to authenticate with the temporary password first.
     token, statuscode = GetToken(settings.CML_USERNAME, temp_password)
+    used_pw = temp_password  # Track which password was effectively used.
 
-    # 2) Fallback to original password if temp did not work
+    # If temp login failed (e.g. temp was never set), fall back to the original admin password.
     if statuscode != 200 or not token:
         logger.warning("CleanUp: temp password login failed, retrying with original admin password")
         token, statuscode = GetToken(settings.CML_USERNAME, settings.CML_PASSWORD)
+        used_pw = settings.CML_PASSWORD
 
     error_trace = []
 
     # Authenticated
-    if statuscode != 200:
+    if not statuscode == 200:
         logger.error(f"CleanUp: GetToken FAILED! Not authenticated!")
         error_trace.append("01: GetToken failed! Not authenticated!")
+        if (settings.SENDGRID_BCC_EMAIL):
+            SendEmail(settings.SENDGRID_BCC_EMAIL, 'Community Network - CleanUp failed!', f'CleanUp failed. Error reason: { error_trace }')
         return
     else:
         labs, statuscode = GetListOfAllLabs(token)
-
+        
         # Loop through all labs, save config, stop and delete labs
         userlabs = []
         for lab in labs:
@@ -372,14 +392,18 @@ def CleanUp(email, temp_password):
                 else:
                     logger.error(f"CleanUp: DownloadLab FAILED for lab {lab}.")
                     error_trace.append(f"04: DownloadLab failed for {lab}")
-
+                
                 # Stop, wipe and delete lab
                 statuscode = StopLab(token, lab)
-                if statuscode == 204:
-                    statuscode = WipeLab(token, lab)
+                if statuscode != 204:
+                    # Correct logging: StopLab failed here.
+                    logger.error(f"CleanUp: StopLab FAILED for lab {lab}.")
+                    error_trace.append(f"05: StopLab failed for {lab}")                
                 else:
-                    logger.error(f"CleanUp: WipeLab FAILED for lab {lab}.")
-                    error_trace.append(f"05: WipeLab failed for {lab}")
+                    statuscode = WipeLab(token, lab)
+                    if statuscode != 204:
+                        logger.error(f"CleanUp: WipeLab FAILED for lab {lab}.")
+                        error_trace.append(f"05: WipeLab failed for {lab}")
 
                 statuscode = DeleteLab(token, lab)
                 if not statuscode == 204:
@@ -399,18 +423,25 @@ def CleanUp(email, temp_password):
                 error_trace.append("08: UpdateUserPassword failed!")
                 logger.error(f"CleanUp: UpdateUserPassword FAILED!")
             else:
-                # Password reset OK
-
-                # Re-authenticate and log out all users
-                token, statuscode = GetToken(settings.CML_USERNAME, settings.CML_PASSWORD)
-                if not statuscode == 200:
-                    error_trace.append("09: GetToken FAILED after changing password!")
-                    logger.error(f"CleanUp: GetToken FAILED after changing password!")
-                else:
-                    statuscode = LogAllUsersOut(token)
+                # Only attempt to restore if the temp password was actually active (i.e., we logged in with it).
+                if used_pw == temp_password:
+                    statuscode = UpdateUserPassword(token, adminid, temp_password, settings.CML_PASSWORD)
                     if not statuscode == 200:
-                        error_trace.append("10: LogAllUsersOut FAILED after changing password!")
-                        logger.error(f"CleanUp: LogAllUsersOut FAILED after changing password!")
+                        error_trace.append("08: UpdateUserPassword failed!")
+                        logger.error(f"CleanUp: UpdateUserPassword FAILED!")
+                    else:
+                        # Password restored OK → re-authenticate and log out all users (clear sessions)
+                        token, statuscode = GetToken(settings.CML_USERNAME, settings.CML_PASSWORD)
+                        if not statuscode == 200:
+                            error_trace.append("09: GetToken FAILED after changing password!")
+                            logger.error(f"CleanUp: GetToken FAILED after changing password!")
+                        else:
+                            statuscode = LogAllUsersOut(token)
+                            if not statuscode == 200:
+                                error_trace.append("10: LogAllUsersOut FAILED after changing password!")
+                                logger.error(f"CleanUp: LogAllUsersOut FAILED after changing password!")
+                else:
+                    logger.info("CleanUp: No password restore needed (temp password was never active).")
 
                 # Loop through the labs and create list of attachments, if any
                 attachments = []
@@ -425,13 +456,10 @@ def CleanUp(email, temp_password):
                     'booking_url': settings.BOOKING_URL,
                 }
                 body = render_to_string('booking/email_teardown.html', context)
-#                statuscode = SendEmail(email, 'Community Network - CML reservasjon er utløpt', body, attachments)
-#                if not statuscode == 202:
                 ok = SendEmail(email, 'Community Network - CML reservasjon er utløpt', body, attachments)
                 if not ok:
                     error_trace.append("11: SendEmail FAILED after cleanup!")
                     logger.error(f"CleanUp: SendEmail FAILED after cleanup!")
-
 
     if error_trace:
         # Something failed! Lets drop the admin an email
