@@ -23,10 +23,28 @@ def GetToken(username, password):
       Failure: 403
     """
     api_url = "authenticate"
-    payload = { "username": username, "password": password }
-    r = requests.post(settings.CML_API_BASE_URL+api_url, json=payload, verify=False)
-    logger.info(f"GetToken: {r.status_code}")
-    return r.json(), r.status_code
+    url = settings.CML_API_BASE_URL.rstrip('/') + '/' + api_url.lstrip('/')
+    payload = {"username": username, "password": password}
+
+    try:
+        r = requests.post(url, json=payload, verify=False, timeout=10)
+        logger.info(f"GetToken: {r.status_code}")
+
+        if r.status_code != 200:
+            logger.error(f"GetToken: Authentication failed, body={r.text[:200]}")
+            return None, r.status_code
+
+        # Responsen er et token i ren tekst, ikke JSON
+        token = r.text.strip().strip('"').strip("'")
+        if not token:
+            logger.error("GetToken: Empty token in response")
+            return None, r.status_code
+
+        return token, r.status_code
+
+    except Exception as e:
+        logger.exception(f"GetToken: Exception while authenticating: {e}")
+        return None, 500
 
 def GetListOfAllLabs(token):
     """
@@ -320,7 +338,7 @@ def CleanUp(email, temp_password):
         error_trace.append("01: GetToken failed! Not authenticated!")
     else:
         labs, statuscode = GetListOfAllLabs(token)
-        
+
         # Loop through all labs, save config, stop and delete labs
         userlabs = []
         for lab in labs:
@@ -347,7 +365,7 @@ def CleanUp(email, temp_password):
                 else:
                     logger.error(f"CleanUp: DownloadLab FAILED for lab {lab}.")
                     error_trace.append(f"04: DownloadLab failed for {lab}")
-                
+
                 # Stop, wipe and delete lab
                 statuscode = StopLab(token, lab)
                 if statuscode == 204:
