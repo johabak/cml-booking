@@ -157,17 +157,43 @@ def GetAdminId(token):
 
 def LogAllUsersOut(token):
     """
-    Clears sessions and log out everyone
+    Clears sessions and logs out everyone (admin-triggered).
+    Tries DELETE first (current impl), then POST fallbacks used by some CML builds.
 
-    Status codes:
-      Success: 200
-      Failure: 401 / any other values
+    Returns:
+      200 on success (even if underlying endpoint returns 204),
+      otherwise the last HTTP status code.
     """
-    api_url = "logout?clear_all_sessions=true"
-    head = {'Authorization': f'Bearer {token}'}
-    r = requests.delete(settings.CML_API_BASE_URL+api_url, headers=head, verify=False)
-    logger.info(f"LogAllUsersOut: {r.status_code}")
-    return r.status_code
+    base = settings.CML_API_BASE_URL.rstrip('/')
+    head = {'Authorization': f'Bearer {token}', 'Accept': 'application/json', 'Content-Type': 'application/json'}
+
+    # 1) Current path: DELETE /logout?clear_all_sessions=true
+    url1 = f"{base}/logout?clear_all_sessions=true"
+    r1 = requests.delete(url1, headers=head, verify=False, timeout=10)
+    logger.info(f"LogAllUsersOut DELETE -> {url1} : {r1.status_code} {r1.text[:200]}")
+    if r1.status_code in (200, 204):
+        return 200
+
+    # 2) Fallbacks seen in the wild (POST)
+    candidates = [
+        ("post", f"{base}/logout", {"clear_all_sessions": True}),
+        ("post", f"{base}/logout?clear_all_sessions=true", None),  # no body
+    ]
+    for method, url, body in candidates:
+        resp = getattr(requests, method)(url, headers=head, json=body, verify=False, timeout=10)
+        logger.info(f"LogAllUsersOut {method.upper()} -> {url} : {resp.status_code} {resp.text[:200]}")
+        if resp.status_code in (200, 204):
+            return 200
+
+    # 3) As a last resort, try /users/logout (rare)
+    url3 = f"{base}/users/logout"
+    r3 = requests.post(url3, headers=head, json={"clear_all_sessions": True}, verify=False, timeout=10)
+    logger.info(f"LogAllUsersOut POST -> {url3} : {r3.status_code} {r3.text[:200]}")
+    if r3.status_code in (200, 204):
+        return 200
+
+    # Return the last status code if none succeeded
+    return r3.status_code if 'r3' in locals() else r1.status_code
 
 def UpdateUserPassword(token, userId, oldpw, newpw):
     """
@@ -425,6 +451,11 @@ def CleanUp(email, temp_password):
                             logger.error("CleanUp: LogAllUsersOut FAILED after changing password!")
             else:
                 logger.info("CleanUp: No password restore needed (temp password was never active).")
+                # Still force a global logout to ensure the active UI/API sessions are cleared.
+                sc = LogAllUsersOut(token)
+                if sc != 200:
+                    error_trace.append("10: LogAllUsersOut FAILED (no-restore path)!")
+                    logger.error("CleanUp: LogAllUsersOut FAILED (no-restore path)!")
 
                 # Loop through the labs and create list of attachments, if any
                 attachments = []
