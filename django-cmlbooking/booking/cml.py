@@ -406,32 +406,25 @@ def CleanUp(email, temp_password):
             error_trace.append("07: GetAdminId failed!")
             logger.error(f"CleanUp: GetAdminId FAILED!")
         else:
-            # Reset password
-            statuscode = UpdateUserPassword(token, adminid, temp_password, settings.CML_PASSWORD)
-
-            if not statuscode == 200:
-                error_trace.append("08: UpdateUserPassword failed!")
-                logger.error(f"CleanUp: UpdateUserPassword FAILED!")
-            else:
-                # Only attempt to restore if the temp password was actually active (i.e., we logged in with it).
-                if used_pw == temp_password:
-                    statuscode = UpdateUserPassword(token, adminid, temp_password, settings.CML_PASSWORD)
-                    if not statuscode == 200:
-                        error_trace.append("08: UpdateUserPassword failed!")
-                        logger.error(f"CleanUp: UpdateUserPassword FAILED!")
-                    else:
-                        # Password restored OK → re-authenticate and log out all users (clear sessions)
-                        token, statuscode = GetToken(settings.CML_USERNAME, settings.CML_PASSWORD)
-                        if not statuscode == 200:
-                            error_trace.append("09: GetToken FAILED after changing password!")
-                            logger.error(f"CleanUp: GetToken FAILED after changing password!")
-                        else:
-                            statuscode = LogAllUsersOut(token)
-                            if not statuscode == 200:
-                                error_trace.append("10: LogAllUsersOut FAILED after changing password!")
-                                logger.error(f"CleanUp: LogAllUsersOut FAILED after changing password!")
+            # Only attempt to restore if the temp password was actually active.
+            if used_pw == temp_password:
+                statuscode = UpdateUserPassword(token, adminid, temp_password, settings.CML_PASSWORD)
+                if statuscode not in (200, 204):
+                    error_trace.append("08: UpdateUserPassword failed!")
+                    logger.error(f"CleanUp: UpdateUserPassword FAILED! status={statuscode}")
                 else:
-                    logger.info("CleanUp: No password restore needed (temp password was never active).")
+                    # Password restored OK → re-authenticate and log out all users (clear sessions)
+                    token, statuscode = GetToken(settings.CML_USERNAME, settings.CML_PASSWORD)
+                    if statuscode != 200:
+                        error_trace.append("09: GetToken FAILED after changing password!")
+                        logger.error("CleanUp: GetToken FAILED after changing password!")
+                    else:
+                        statuscode = LogAllUsersOut(token)
+                        if statuscode != 200:
+                            error_trace.append("10: LogAllUsersOut FAILED after changing password!")
+                            logger.error("CleanUp: LogAllUsersOut FAILED after changing password!")
+            else:
+                logger.info("CleanUp: No password restore needed (temp password was never active).")
 
                 # Loop through the labs and create list of attachments, if any
                 attachments = []
