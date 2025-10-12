@@ -26,7 +26,8 @@ def GetToken(username, password):
     payload = { "username": username, "password": password }
     r = requests.post(settings.CML_API_BASE_URL+api_url, json=payload, verify=False)
     logger.info(f"GetToken: {r.status_code}")
-    return r.json(), r.status_code
+    token = r.text.strip().strip('"').strip("'")
+    return token, r.status_code
 
 def GetListOfAllLabs(token):
     """
