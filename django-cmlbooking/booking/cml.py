@@ -170,33 +170,25 @@ def LogAllUsersOut(token):
     return r.status_code
 
 def UpdateUserPassword(token, userId, oldpw, newpw):
-    head = {
-        'Authorization': f'Bearer {token}',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
+    """
+    Updates the password for a given user ID
+
+    Status codes:
+      Success: 200
+      Failure: any other values
+    """
+    api_url = f"users/{userId}/"
+    head = {'Authorization': f'Bearer {token}'}
+    payload = { 
+        "password": 
+        {
+            "old_password": oldpw,
+            "new_password": newpw
+        }
     }
-
-    base = settings.CML_API_BASE_URL.rstrip('/')
-
-    # Variant A: PATCH /users/{id}/  body={"password":{"old_password":...,"new_password":...}}
-    for tail in (f"/users/{userId}/", f"/users/{userId}"):
-        url = base + tail
-        payload = {"password": {"old_password": oldpw, "new_password": newpw}}
-        r = requests.patch(url, headers=head, json=payload, verify=False, timeout=10)
-        logger.info(f"UpdateUserPassword A -> {url} : {r.status_code} body={r.text[:200]}")
-        if r.status_code != 404:
-            return r.status_code
-
-    # Variant B: PATCH /users/{id}/password  body={"old_password":...,"new_password":...}
-    for tail in (f"/users/{userId}/password", f"/users/{userId}/password/"):
-        url = base + tail
-        payload = {"old_password": oldpw, "new_password": newpw}
-        r = requests.patch(url, headers=head, json=payload, verify=False, timeout=10)
-        logger.info(f"UpdateUserPassword B -> {url} : {r.status_code} body={r.text[:200]}")
-        if r.status_code != 404:
-            return r.status_code
-
-    return 404
+    r = requests.patch(settings.CML_API_BASE_URL+api_url, headers=head, json=payload, verify=False)
+    logger.info(f"UpdateUserPassword: {r.status_code}")
+    return r.status_code
 
 #def SendEmail(email, title, content, attachments=None):
 #    """
@@ -443,7 +435,7 @@ def CreateTempUser(email, temp_password):
     # Get token and update username
     token, statuscode = GetToken(settings.CML_USERNAME, settings.CML_PASSWORD)
     
-    if not statuscode == 200:
+    if statuscode != 200 or not token:
         logger.error(f"CreateTempUser: GetToken FAILED! Not authenticated!")
         error_trace.append("01: GetToken failed! Not authenticated!")
     else:
