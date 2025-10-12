@@ -139,18 +139,21 @@ def DeleteLab(token, labId):
     return r.status_code
 
 def GetAdminId(token):
-    """
-    Return the ID of the admin account
-
-    Status codes:
-      Success: 200
-      Failure: any other values
-    """
     api_url = "users/admin/id"
-    head = {'Authorization': f'Bearer {token}'}
-    r = requests.get(settings.CML_API_BASE_URL+api_url, headers=head, verify=False)
-    logger.info(f"GetAdminId: {r.status_code}")
-    return r.json(), r.status_code
+    head = {'Authorization': f'Bearer {token}', 'Accept': 'application/json'}
+    r = requests.get(settings.CML_API_BASE_URL + api_url, headers=head, verify=False, timeout=10)
+    logger.info(f"GetAdminId: {r.status_code} body={r.text[:200]}")
+    admin_id = None
+    try:
+        data = r.json()
+        if isinstance(data, dict) and "id" in data:
+            admin_id = data["id"]
+        elif isinstance(data, str):
+            admin_id = data.strip().strip('"').strip("'")
+    except Exception:
+        # Enkel fallback hvis API ga ren tekst
+        admin_id = r.text.strip().strip('"').strip("'")
+    return admin_id, r.status_code
 
 def LogAllUsersOut(token):
     """
@@ -167,25 +170,33 @@ def LogAllUsersOut(token):
     return r.status_code
 
 def UpdateUserPassword(token, userId, oldpw, newpw):
-    """
-    Updates the password for a given user ID
-
-    Status codes:
-      Success: 200
-      Failure: any other values
-    """
-    api_url = f"users/{userId}/"
-    head = {'Authorization': f'Bearer {token}'}
-    payload = { 
-        "password": 
-        {
-            "old_password": oldpw,
-            "new_password": newpw
-        }
+    head = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
     }
-    r = requests.patch(settings.CML_API_BASE_URL+api_url, headers=head, json=payload, verify=False)
-    logger.info(f"UpdateUserPassword: {r.status_code}")
-    return r.status_code
+
+    base = settings.CML_API_BASE_URL.rstrip('/')
+
+    # Variant A: PATCH /users/{id}/  body={"password":{"old_password":...,"new_password":...}}
+    for tail in (f"/users/{userId}/", f"/users/{userId}"):
+        url = base + tail
+        payload = {"password": {"old_password": oldpw, "new_password": newpw}}
+        r = requests.patch(url, headers=head, json=payload, verify=False, timeout=10)
+        logger.info(f"UpdateUserPassword A -> {url} : {r.status_code} body={r.text[:200]}")
+        if r.status_code != 404:
+            return r.status_code
+
+    # Variant B: PATCH /users/{id}/password  body={"old_password":...,"new_password":...}
+    for tail in (f"/users/{userId}/password", f"/users/{userId}/password/"):
+        url = base + tail
+        payload = {"old_password": oldpw, "new_password": newpw}
+        r = requests.patch(url, headers=head, json=payload, verify=False, timeout=10)
+        logger.info(f"UpdateUserPassword B -> {url} : {r.status_code} body={r.text[:200]}")
+        if r.status_code != 404:
+            return r.status_code
+
+    return 404
 
 #def SendEmail(email, title, content, attachments=None):
 #    """
@@ -311,14 +322,22 @@ def CleanUp(email, temp_password):
     """
     # Authenticate and get all labs
     logger.info(f"CleanUp: Starting cleanup")
+
+    # 1) Try temp-password (if CreateTempUser did work)
     token, statuscode = GetToken(settings.CML_USERNAME, temp_password)
+
+    # 2) Fallback to original password if temp did not work
+    if statuscode != 200:
+        logger.warning("CleanUp: temp password login failed, trying current admin password")
+        token, statuscode = GetToken(settings.CML_USERNAME, settings.CML_PASSWORD)
 
     error_trace = []
 
     # Authenticated
-    if not statuscode == 200:
+    if statuscode != 200:
         logger.error(f"CleanUp: GetToken FAILED! Not authenticated!")
         error_trace.append("01: GetToken failed! Not authenticated!")
+        return
     else:
         labs, statuscode = GetListOfAllLabs(token)
 
