@@ -17,7 +17,8 @@ class Booking(models.Model):
         return f'{self.timeslot} - {self.email}'
 
     def save(self, *args, **kwargs):
-        self.password = random_uuid()
+        #self.password = random_uuid()
+        self.password = "Changeme123!"
         self.cancelcode = random_uuid()
         super(Booking, self).save(*args, **kwargs)
 
