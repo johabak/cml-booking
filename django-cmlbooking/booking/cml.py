@@ -171,15 +171,17 @@ def LogAllUsersOut(token):
 
 def UpdateUserPassword(token, userId, oldpw, newpw):
     """
-    Updates the password for a given user ID.
+    Update a user's password via the documented endpoint:
+      PATCH /users/{user_id}
 
-    Primary (future-ready): PATCH /users/{id}/ with payload:
-      {"password":{"old_password": oldpw, "new_password": newpw}}
+    Notes:
+    - For admin users the API allows setting a new password by providing an
+      empty old password. Therefore the 'oldpw' argument is intentionally not
+      used in the payload below.
+    - We try WITHOUT trailing slash first (as per docs). If that returns 404,
+      we retry WITH a trailing slash for compatibility with some deployments.
 
-    Fallback (your CML today): /change_password for the *authenticated* user with payload:
-      {"old_password": oldpw, "new_password": newpw}
-
-    Returns the status code from the API call.
+    Returns: HTTP status code from the final API call.
     """
 
     base = settings.CML_API_BASE_URL.rstrip('/')
@@ -191,25 +193,21 @@ def UpdateUserPassword(token, userId, oldpw, newpw):
         'Content-Type': 'application/json',
     }
 
-    # Primary: per-user endpoint
-    url1 = f"{base}/users/{userId}/"
-    payload1 = {"password": {"old_password": oldpw, "new_password": newpw}}
-    r1 = requests.patch(url1, headers=headers, json=payload1, verify=False, timeout=10)
-    logger.info(f"UpdateUserPassword primary -> {url1} : {r1.status_code} {r1.text[:200]}")
+    # Admin path: empty old_password is allowed by the API
+    payload = {"password": {"old_password": "", "new_password": newpw}}
 
-    if r1.status_code != 404:
-        return r1.status_code  # return 200/4xx/5xx (anything except 404)
+    # 1) No trailing slash (preferred by docs)
+    url = f"{base}/users/{userId}"
+    r = requests.patch(url, headers=headers, json=payload, verify=False, timeout=10)
+    logger.info(f"UpdateUserPassword -> {url} : {r.status_code} {r.text[:200]}")
+    if r.status_code != 404:
+        return r.status_code
 
-    # Fallback: global endpoint for the logged-in user
-    url_fb = f"{base}/change_password"
-    payload_fb = {"old_password": oldpw, "new_password": newpw}
-    for method in ("post", "patch", "put"):
-        resp = getattr(requests, method)(url_fb, headers=headers, json=payload_fb, verify=False, timeout=10)
-        logger.info(f"UpdateUserPassword fallback {method.upper()} -> {url_fb} : {resp.status_code} {resp.text[:200]}")
-        if resp.status_code != 404:
-            return resp.status_code
-
-    return 404
+    # 2) Retry with trailing slash (compat)
+    url2 = url + "/"
+    r2 = requests.patch(url2, headers=headers, json=payload, verify=False, timeout=10)
+    logger.info(f"UpdateUserPassword (trailing slash) -> {url2} : {r2.status_code} {r2.text[:200]}")
+    return r2.status_code
 
 #def SendEmail(email, title, content, attachments=None):
 #    """
