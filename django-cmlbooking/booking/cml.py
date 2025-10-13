@@ -489,7 +489,7 @@ def CleanUp(email, temp_password):
                 if os.path.exists(lab_path):
                     lab_files.append(lab_path)
                 else:
-                    logger.warning(f"CleanUp: expected lab file missing: {lab_path}"
+                    logger.warning(f"CleanUp: expected lab file missing: {lab_path}")
 
         # Brevo rejects .yaml attachments. Zip everything into one archive.
         zip_path = None
