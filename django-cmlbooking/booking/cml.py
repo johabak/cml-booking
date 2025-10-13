@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 import mimetypes
 from django.core.mail import EmailMultiAlternatives
 from anymail.exceptions import AnymailError
+import zipfile
+import tempfile
+import time
 
 def GetToken(username, password):
     """
@@ -95,6 +98,28 @@ def SaveLab(labId, labFile):
     with open(f'{os.path.join(labs_directory, labId)}.yaml', 'w') as file:
         file.write(labFile)
     logger.info(f"SaveLab: {labId}")
+
+def _zip_attachments(file_paths, zip_basename="cml_vedlegg"):
+    """
+    Build a temporary ZIP archive containing the given file paths.
+    - Skips missing files silently but logs a warning.
+    - Returns path to the created .zip file (caller is responsible for deleting it).
+
+    We use the system temp dir so we don't pollute the project tree.
+    """
+    ts = int(time.time())
+    zip_path = os.path.join(tempfile.gettempdir(), f"{zip_basename}_{ts}.zip")
+
+    with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for p in file_paths or []:
+            if not os.path.exists(p):
+                logger.warning(f"_zip_attachments: file not found, skipping: {p}")
+                continue
+            # arcname strips directories so recipients see clean filenames inside the ZIP
+            zf.write(p, arcname=os.path.basename(p))
+
+    logger.info(f"_zip_attachments: built {zip_path}")
+    return zip_path
 
 def StopLab(token, labId):
     """
@@ -455,21 +480,63 @@ def CleanUp(email, temp_password):
                             error_trace.append("10: LogAllUsersOut FAILED after changing password!")
                             logger.error("CleanUp: LogAllUsersOut FAILED after changing password!")
         # --- ALWAYS send teardown email to the user (with any saved lab YAMLs) ---
-        attachments = []
+        labs_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs/')
+        lab_files = []
         if userlabs:
-            labs_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs/')
             for lab in userlabs:
-                attachments.append(f'{labs_directory}{lab}.yaml')
+                # YAML files are saved as <lab_id>.yaml
+                lab_path = os.path.join(labs_directory, f"{lab}.yaml")
+                if os.path.exists(lab_path):
+                    lab_files.append(lab_path)
+                else:
+                    logger.warning(f"CleanUp: expected lab file missing: {lab_path}"
 
-        context = {
-            'cml_url': settings.CML_URL,
-            'booking_url': settings.BOOKING_URL,
-        }
-        body = render_to_string('booking/email_teardown.html', context)
-        ok = SendEmail(email, 'Community Network - CML reservasjon er utløpt', body, attachments)
-        if not ok:
-            error_trace.append("11: SendEmail FAILED after cleanup!")
-            logger.error("CleanUp: SendEmail FAILED after cleanup!")
+        # Brevo rejects .yaml attachments. Zip everything into one archive.
+        zip_path = None
+        try:
+            attachments = None
+            if lab_files:
+                zip_path = _zip_attachments(lab_files, zip_basename="cml_konfig")
+                attachments = [zip_path]  # send one .zip file
+
+            context = {
+                'cml_url': settings.CML_URL,
+                'booking_url': settings.BOOKING_URL,
+            }
+            body = render_to_string('booking/email_teardown.html', context)
+            ok = SendEmail(
+                email,
+                'Community Network - CML reservasjon er utløpt',
+                body,
+                attachments=attachments
+            )
+            if not ok:
+                error_trace.append("11: SendEmail FAILED after cleanup!")
+                logger.error("CleanUp: SendEmail FAILED after cleanup!")
+        finally:
+            # Always clean up the temp zip
+            if zip_path and os.path.exists(zip_path):
+                try:
+                    os.remove(zip_path)
+                    logger.info(f"CleanUp: removed temp zip: {zip_path}")
+                except Exception as e:
+                    logger.warning(f"CleanUp: failed removing temp zip {zip_path}: {e}")
+
+#        attachments = []
+#        if userlabs:
+#            labs_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs/')
+#            for lab in userlabs:
+#                attachments.append(f'{labs_directory}{lab}.yaml')
+#
+#        context = {
+#            'cml_url': settings.CML_URL,
+#            'booking_url': settings.BOOKING_URL,
+#        }
+#        body = render_to_string('booking/email_teardown.html', context)
+#        ok = SendEmail(email, 'Community Network - CML reservasjon er utløpt', body, attachments)
+#        if not ok:
+#            error_trace.append("11: SendEmail FAILED after cleanup!")
+#            logger.error("CleanUp: SendEmail FAILED after cleanup!")
 
                 
 
