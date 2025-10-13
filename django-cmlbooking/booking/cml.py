@@ -386,9 +386,10 @@ def CleanUp(email, temp_password):
         userlabs = []
         for lab in labs:
             nodes, statuscode = GetNodesInLab(token, lab)
-            if not statuscode == 200:
-                logger.error(f"CleanUp: GetNodesInLab FAILED for {lab}")
-                error_trace.append(f"02: GetNodedInLab failed for {lab}")
+            if statuscode != 200:
+                logger.warning(f"CleanUp: GetNodesInLab FAILED for {lab}, contiuneing without it.")
+                error_trace.append(f"02: GetNodesInLab FAILED for {lab}, contiuneing without it.")
+                nodes = []  # ensure downstream code doesn't crash if it loops nodes
             else:
                 for node in nodes:
                     # Note! Extract of config only works if node is running,
@@ -414,19 +415,19 @@ def CleanUp(email, temp_password):
                     error_trace.append(f"04: DownloadLab failed for {lab}")
                 
                 # Stop, wipe and delete lab
+                ok_codes = (200, 202, 204)
                 statuscode = StopLab(token, lab)
-                if statuscode != 204:
-                    # Correct logging: StopLab failed here.
+                if statuscode not in ok_codes:
                     logger.error(f"CleanUp: StopLab FAILED for lab {lab}.")
-                    error_trace.append(f"05: StopLab failed for {lab}")                
-                else:
-                    statuscode = WipeLab(token, lab)
-                    if statuscode != 204:
-                        logger.error(f"CleanUp: WipeLab FAILED for lab {lab}.")
-                        error_trace.append(f"05: WipeLab failed for {lab}")
+                    error_trace.append(f"05: StopLab failed for {lab}")
+
+                statuscode = WipeLab(token, lab)
+                if statuscode not in ok_codes:
+                    logger.error(f"CleanUp: WipeLab FAILED for lab {lab}.")
+                    error_trace.append(f"05: WipeLab failed for {lab}")
 
                 statuscode = DeleteLab(token, lab)
-                if not statuscode == 204:
+                if statuscode not in ok_codes:
                     logger.error(f"CleanUp: DeleteLab FAILED for lab {lab}.")
                     error_trace.append(f"06: DeleteLab failed for {lab}")
         
@@ -453,31 +454,24 @@ def CleanUp(email, temp_password):
                         if statuscode != 200:
                             error_trace.append("10: LogAllUsersOut FAILED after changing password!")
                             logger.error("CleanUp: LogAllUsersOut FAILED after changing password!")
-            else:
-                logger.info("CleanUp: No password restore needed (temp password was never active).")
-                # Still force a global logout to ensure the active UI/API sessions are cleared.
-                sc = LogAllUsersOut(token)
-                if sc != 200:
-                    error_trace.append("10: LogAllUsersOut FAILED (no-restore path)!")
-                    logger.error("CleanUp: LogAllUsersOut FAILED (no-restore path)!")
+        # --- ALWAYS send teardown email to the user (with any saved lab YAMLs) ---
+        attachments = []
+        if userlabs:
+            labs_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs/')
+            for lab in userlabs:
+                attachments.append(f'{labs_directory}{lab}.yaml')
 
-                # Loop through the labs and create list of attachments, if any
-                attachments = []
-                if userlabs:
-                    for lab in userlabs:
-                        labs_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs/')
-                        attachments.append(f'{labs_directory}{lab}.yaml')
+        context = {
+            'cml_url': settings.CML_URL,
+            'booking_url': settings.BOOKING_URL,
+        }
+        body = render_to_string('booking/email_teardown.html', context)
+        ok = SendEmail(email, 'Community Network - CML reservasjon er utløpt', body, attachments)
+        if not ok:
+            error_trace.append("11: SendEmail FAILED after cleanup!")
+            logger.error("CleanUp: SendEmail FAILED after cleanup!")
 
-                # Send the user an email (with attachments, if any) using template
-                context = {
-                    'cml_url': settings.CML_URL,
-                    'booking_url': settings.BOOKING_URL,
-                }
-                body = render_to_string('booking/email_teardown.html', context)
-                ok = SendEmail(email, 'Community Network - CML reservasjon er utløpt', body, attachments)
-                if not ok:
-                    error_trace.append("11: SendEmail FAILED after cleanup!")
-                    logger.error(f"CleanUp: SendEmail FAILED after cleanup!")
+                
 
     # Only escalate truly fatal issues (ignore 03: GetNodeConfig warnings)
     fatal_errors = [e for e in error_trace if not e.startswith("03: GetNodeConfig")]
