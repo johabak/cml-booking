@@ -5,7 +5,7 @@ Simple django web app for booking time in an CML installation. Expect bugs, lots
 ## Prerequisites
 
 - A [CML](https://developer.cisco.com/docs/modeling-labs) installation
-- A [Brevo]([https://sendgrid.com/free/](https://www.brevo.com/landing/products/?utm_source=adwords_brand&utm_medium=lastclick&utm_content=&utm_extension=&utm_term=brevo&utm_matchtype=p&utm_campaign=22603315593&utm_network=g&km_adid=754996610768&km_adposition=&km_device=c&utm_adgroupid=175399091690&gad_source=1&gad_campaignid=22603315593&gbraid=0AAAAADjx0RbO9CwIO5oaiUYymrLIh23lr&gclid=EAIaIQobChMI6Pj7wJimkAMVNgCiAx1J_RQfEAAYASAAEgKHGvD_BwE)) account for sending out emails. Free works fine!
+- A [Brevo](https://www.brevo.com/) account for sending out emails. Free works fine!
 
 ## Quick start for development installation
 
